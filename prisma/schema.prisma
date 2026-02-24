@@ -1,0 +1,712 @@
+// ============================================================================
+// EV CHARGE GUINÉE - COMPLETE DATABASE SCHEMA
+// Covers all 137 functional requirements
+// Version: 1.0
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USERS & AUTHENTICATION (Req 23-29, 63-69)
+// ============================================================================
+
+enum UserRole {
+  ADMIN       // Administrateur (PROFIL 3)
+  OPERATOR    // Opérateur (PROFIL 2)
+  USER        // Utilisateur final (PROFIL 1)
+}
+
+enum UserStatus {
+  ACTIVE      
+  INACTIVE    
+  SUSPENDED   
+  PENDING     // En attente de vérification email
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String     
+  firstName String?
+  lastName  String?
+  phone     String?    @unique
+  avatar        String?
+  role      UserRole   @default(USER)
+  status    UserStatus @default(PENDING)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastLogin       DateTime?
+  emailVerifiedAt DateTime?
+  
+  // Relations
+  profile          UserProfile?
+  vehicles         Vehicle[]
+  wallet           Wallet?  
+  rfidCards        RfidCard[]
+  sessions         ChargingSession[]
+  payments         Payment[]
+  notifications    Notification[]
+  subscriptions    Subscription[]
+  loyaltyPoints    LoyaltyPoint[]
+  supportTickets   SupportTicket[]
+  reviews          Review[]
+  favoriteStations FavoriteStation[]
+  operatedStations ChargingStation[] @relation("StationOperator")
+  
+  @@map("users")
+  @@index([email])
+  @@index([phone])
+  @@index([status])
+  @@index([role])
+}
+
+model UserProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  avatar      String?
+  address     String?
+  city        String?
+  country     String   @default("Guinea")
+  postalCode  String?
+  dateOfBirth DateTime?
+  
+  // Preferences (Req 31)
+  language           String  @default("fr")
+  notifications      Boolean @default(true)
+  emailNotifications Boolean @default(true)
+  smsNotifications   Boolean @default(false)
+  pushNotifications  Boolean @default(true)
+  
+  // KYC
+  idCardNumber     String?
+  idCardVerified   Boolean  @default(false)
+  idCardVerifiedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("user_profiles")
+}
+
+// ============================================================================
+// CHARGING STATIONS (Req 1-8, 43-48, 70-75)
+// ============================================================================
+
+enum StationStatus {
+  AVAILABLE      // Disponible
+  OCCUPIED       // En cours d'utilisation
+  OUT_OF_SERVICE // Hors service
+  MAINTENANCE    // En maintenance
+  OFFLINE        // Hors ligne
+}
+
+enum ConnectorType {
+  TYPE1          // J1772
+  TYPE2          // Mennekes
+  CCS_COMBO      // CCS Combo
+  CHADEMO        // CHAdeMO
+  GB_T           // GB/T (Chine)
+  TESLA          // Tesla Supercharger
+}
+
+model ChargingStation {
+  id              String        @id @default(uuid())
+  stationId       String        @unique // ID CitrineOS
+  name            String
+  code            String        @unique // Code pour scan manuel (Req 7)
+  qrCode          String?       // QR Code data (Req 6)
+  
+  // Location (Req 1-5)
+  address         String
+  city            String
+  postalCode      String?
+  latitude        Float
+  longitude       Float
+  
+  // Details (Req 3)
+  power           Float         // kW
+  connectorType   ConnectorType
+  numberOfPorts   Int           @default(1)
+  status          StationStatus @default(AVAILABLE)
+  
+  // Pricing (Req 48, 74)
+  pricePerKwh     Float         // GNF/kWh
+  
+  // Operator (Req 73)
+  operatorId      String?
+  operator        User?         @relation("StationOperator", fields: [operatorId], references: [id])
+  
+  // Images
+  photos          String[]      // Array of image URLs
+  
+  // Metadata
+  isPublic        Boolean       @default(true)
+  description     String?
+  amenities       String[]      // ["WiFi", "Cafe", "Restroom"]
+  
+  // CitrineOS sync
+  citrineosSyncedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  sessions         ChargingSession[]
+  maintenanceLogs  MaintenanceLog[]
+  reviews          Review[]
+  favoriteBy       FavoriteStation[]
+  
+  @@map("charging_stations")
+  @@index([stationId])
+  @@index([status])
+  @@index([city])
+  @@index([latitude, longitude])
+}
+
+// ============================================================================
+// CHARGING OFFERS (Req 9-12, 76-81)
+// ============================================================================
+
+enum OfferType {
+  QUICK          // Rapide (30 min)
+  STANDARD       // Standard (1h)
+  FULL           // Complète (2h+)
+}
+
+model ChargingOffer {
+  id          String    @id @default(uuid())
+  name        String    // "Recharge Rapide"
+  description String?
+  type        OfferType
+  
+  // Duration and Power
+  duration    Int       // Minutes
+  power       Float     // kW
+  
+  // Pricing (Req 10, 79)
+  price       Float     // GNF
+  pricePerKwh Float?    // GNF/kWh (alternative)
+  
+  // Promo (Req 80-81)
+  isPromo     Boolean   @default(false)
+  promoPrice  Float?
+  promoStart  DateTime?
+  promoEnd    DateTime?
+  
+  // Availability
+  isActive    Boolean   @default(true)
+  zones       String[]  // Cities/zones where available
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("charging_offers")
+  @@index([type])
+  @@index([isActive])
+}
+
+// ============================================================================
+// VEHICLES (User vehicles)
+// ============================================================================
+
+enum VehicleType {
+  CAR
+  MOTORCYCLE
+  TRUCK
+  BUS
+  VAN
+}
+
+model Vehicle {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  make            String
+  model           String
+  year            Int?
+  color           String?
+  licensePlate    String?       @unique
+  vehicleType     VehicleType   @default(CAR)
+  batteryCapacity Float?        // kWh
+  maxChargingPower Float?       // kW
+  photo           String?
+  isDefault       Boolean       @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("vehicles")
+  @@index([userId])
+}
+
+// ============================================================================
+// RFID CARDS
+// ============================================================================
+
+enum RfidCardStatus {
+  ACTIVE
+  BLOCKED
+  EXPIRED
+  LOST
+  STOLEN
+}
+
+model RfidCard {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  cardNumber        String         @unique
+  cardName          String?
+  status            RfidCardStatus @default(ACTIVE)
+  issueDate         DateTime       @default(now())
+  expiryDate        DateTime?
+  citrineosSyncedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("rfid_cards")
+  @@index([cardNumber])
+  @@index([userId])
+}
+
+// ============================================================================
+// CHARGING SESSIONS (Req 18-22, 26-29, 54-58, 118-122)
+// ============================================================================
+
+enum SessionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
+  STOPPED
+}
+
+model ChargingSession {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  stationId       String
+  station         ChargingStation @relation(fields: [stationId], references: [id])
+  
+  connectorId     Int
+  transactionId   Int?
+  
+  status          SessionStatus   @default(PENDING)
+  startTime       DateTime        @default(now())
+  endTime         DateTime?
+  duration        Int?            // Seconds
+  
+  // Energy (Req 22)
+  meterStart      Float?          // Wh
+  meterStop       Float?          // Wh
+  energyConsumed  Float?          // kWh
+  
+  // Cost (Req 121)
+  pricePerKwh     Float?
+  cost            Float?          // GNF
+  
+  // Payment
+  paymentId       String?
+  payment         Payment?        @relation(fields: [paymentId], references: [id])
+  isPaid          Boolean         @default(false)
+  
+  // Metadata
+  stopReason      String?
+  failureReason   String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("charging_sessions")
+  @@index([userId])
+  @@index([stationId])
+  @@index([status])
+  @@index([transactionId])
+}
+
+// ============================================================================
+// PAYMENTS (Req 13-17, 82-88)
+// ============================================================================
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  MOBILE_MONEY  // NG Wallet, Orange Money, MTN
+  CARD          // Visa, Mastercard
+  WALLET        // Portefeuille interne
+  CASH
+}
+
+model Payment {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Cinetpay (Req 14)
+  cinetpayTransactionId String? @unique
+  cinetpayPaymentToken  String?
+  cinetpayPaymentUrl    String?
+  cinetpayOperator      String? // OMGN, MTN, etc.
+  
+  amount        Float
+  currency      String        @default("GNF")
+  method        PaymentMethod?
+  status        PaymentStatus @default(PENDING)
+  reference     String        @unique
+  description   String?
+  
+  // Metadata
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  
+  // Relations
+  sessions      ChargingSession[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+  failedAt    DateTime?
+  
+  @@map("payments")
+  @@index([userId])
+  @@index([status])
+  @@index([reference])
+}
+
+// ============================================================================
+// SUBSCRIPTIONS (Req 34-38, 89-93)
+// ============================================================================
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  SUSPENDED
+}
+
+model SubscriptionPlan {
+  id          String  @id @default(uuid())
+  name        String  // "Premium Monthly"
+  description String?
+  
+  // Pricing
+  price       Float   // GNF/month
+  duration    Int     // Days (30, 90, 365)
+  
+  // Benefits
+  benefits    Json    // {"freeKwh": 100, "discount": 20}
+  
+  // Limits
+  maxSessions Int?    // Max sessions per month
+  
+  isActive    Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  subscriptions Subscription[]
+  
+  @@map("subscription_plans")
+  @@index([isActive])
+}
+
+model Subscription {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  planId String
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+  
+  status      SubscriptionStatus @default(ACTIVE)
+  startDate   DateTime           @default(now())
+  endDate     DateTime
+  autoRenew   Boolean            @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("subscriptions")
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================================================
+// LOYALTY POINTS (Req 37-38)
+// ============================================================================
+
+enum LoyaltyTransactionType {
+  EARNED    // Points gagnés
+  REDEEMED  // Points dépensés
+  EXPIRED   // Points expirés
+}
+
+model LoyaltyPoint {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  points      Int                     // +100 or -50
+  type        LoyaltyTransactionType
+  description String?
+  expiresAt   DateTime?
+  
+  createdAt DateTime @default(now())
+  
+  @@map("loyalty_points")
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// SUPPORT TICKETS (Req 39-42, 107-111)
+// ============================================================================
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model SupportTicket {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  
+  // Assignment (Req 108)
+  assignedToId String?
+  
+  // Station related
+  stationId   String?
+  
+  // Attachments
+  attachments String[] // URLs
+  
+  // Resolution
+  resolvedAt  DateTime?
+  resolution  String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("support_tickets")
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+}
+
+// ============================================================================
+// MAINTENANCE LOGS (Req 49-53, 57)
+// ============================================================================
+
+enum MaintenanceType {
+  PREVENTIVE  // Préventive
+  CORRECTIVE  // Corrective
+  EMERGENCY   // Urgence
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model MaintenanceLog {
+  id        String @id @default(uuid())
+  stationId String
+  station   ChargingStation @relation(fields: [stationId], references: [id])
+  
+  type        MaintenanceType
+  status      MaintenanceStatus @default(SCHEDULED)
+  description String
+  
+  // Scheduling (Req 50)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  // Technician
+  technicianName String?
+  notes          String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("maintenance_logs")
+  @@index([stationId])
+  @@index([status])
+}
+
+// ============================================================================
+// REVIEWS (Req 110)
+// ============================================================================
+
+model Review {
+  id        String @id @default(uuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  stationId String
+  station   ChargingStation @relation(fields: [stationId], references: [id])
+  
+  rating    Int     // 1-5 stars
+  comment   String?
+  
+  // Moderation (Req 111)
+  isModerated Boolean @default(false)
+  isApproved  Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("reviews")
+  @@index([stationId])
+  @@index([userId])
+}
+
+// ============================================================================
+// FAVORITE STATIONS (User feature)
+// ============================================================================
+
+model FavoriteStation {
+  id        String @id @default(uuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  stationId String
+  station   ChargingStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([userId, stationId])
+  @@map("favorite_stations")
+  @@index([userId])
+}
+
+// ============================================================================
+// NOTIFICATIONS (Req 30-33, 112-117)
+// ============================================================================
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  SESSION_STARTED
+  SESSION_COMPLETED
+  SESSION_FAILED
+  PAYMENT_REQUIRED
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  RFID_EXPIRING
+  SUBSCRIPTION_RENEWAL
+  MAINTENANCE_ALERT
+  PROMOTION
+}
+
+model Notification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type       NotificationType
+  title      String
+  message    String
+  read       Boolean          @default(false)
+  actionUrl  String?
+  actionText String?
+  metadata   Json?
+  
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+  
+  @@map("notifications")
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+// ============================================================================
+// WALLETS (NG Wallet - Portefeuille interne)
+// ============================================================================
+
+model Wallet {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  balance Float @default(0) // GNF
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  transactions WalletTransaction[]
+  
+  @@map("wallets")
+  @@index([userId])
+}
+
+enum WalletTransactionType {
+  CREDIT      // Recharge du wallet
+  DEBIT       // Déduction pour charge
+  REFUND      // Remboursement
+  BONUS       // Bonus/Promotion
+}
+
+model WalletTransaction {
+  id       String @id @default(uuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  type        WalletTransactionType
+  amount      Float                  // GNF (+ pour crédit, - pour débit)
+  balanceBefore Float
+  balanceAfter  Float
+  description String?
+  
+  // Référence optionnelle à une session ou paiement
+  sessionId String?
+  paymentId String?
+  
+  createdAt DateTime @default(now())
+  
+  @@map("wallet_transactions")
+  @@index([walletId])
+  @@index([createdAt])
+}
