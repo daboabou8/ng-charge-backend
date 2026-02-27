@@ -10,15 +10,18 @@ import {
   UseGuards,
   Request,
   Res,
+  NotFoundException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { StationsService } from './stations.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { QrCodeService } from './qrcode.service';
+import { QrCodeService } from '../qrcode/qrcode.service';
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { SearchStationsDto } from './dto/search-stations.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('stations')
 export class StationsController {
@@ -79,46 +82,57 @@ export class StationsController {
 
   // ==================== QR CODE ROUTES ====================
 
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/qrcode/regenerate')
-  async regenerateQrCode(@Param('id') id: string) {
-    return this.stationsService.regenerateQrCode(id);
-  }
-
-  @Get(':id/qrcode/image')
-  async getQrCodeImage(@Param('id') id: string, @Res() res: Response) {
-    const station = await this.stationsService.findOne(id);
-
-    const qrCodeBuffer = await this.qrCodeService.generateQrCodeBuffer(
-      station.qrCode,
-    );
-
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="qrcode-${station.code}.png"`,
-    );
-    res.send(qrCodeBuffer);
-  }
-
   @Get(':id/qrcode/preview')
   async getQrCodePreview(@Param('id') id: string) {
     const station = await this.stationsService.findOne(id);
+    
+    if (!station.qrCode) {
+      throw new NotFoundException('QR Code not found');
+    }
 
-    const qrCodeBase64 = await this.qrCodeService.generateQrCodeImage(
-      station.qrCode,
+    const qrCodeDataUrl = await this.qrCodeService.getQrCodeAsBase64(
+      station.code,
+      station.stationId,
     );
 
     return {
+      qrCodeDataUrl,
       stationId: station.id,
       stationCode: station.code,
       stationName: station.name,
-      qrCode: station.qrCode,
-      qrCodeImage: qrCodeBase64,
     };
   }
 
-  @UseGuards(JwtAuthGuard)
+  @Get(':id/qrcode/image')
+  async downloadQrCode(@Param('id') id: string, @Res() res: Response) {
+    const station = await this.stationsService.findOne(id);
+    
+    if (!station.qrCode) {
+      throw new NotFoundException('QR Code not found');
+    }
+
+    const filepath = this.qrCodeService.getQrCodePath(station.code);
+    
+    res.download(filepath, `qrcode-${station.code}.png`);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
+  @Post(':id/qrcode/regenerate')
+  async regenerateQrCode(@Param('id') id: string) {
+    const result = await this.stationsService.regenerateQrCode(id);
+    
+    const qrCodeDataUrl = await this.qrCodeService.getQrCodeAsBase64(result.station.code, result.station.stationId);
+
+    return {
+      message: result.message,
+      qrCodeDataUrl,
+      station: result.station,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Get('qrcodes/batch')
   async getBatchQrCodes(@Query('ids') ids: string) {
     const stationIds = ids.split(',');
@@ -135,17 +149,16 @@ export class StationsController {
         name: true,
         qrCode: true,
         address: true,
+        stationId: true,
       },
     });
 
     const qrCodes = await Promise.all(
       stations.map(async (station) => {
-        const qrCodeImage = await this.qrCodeService.generateQrCodeImage(
-          station.qrCode,
-        );
+        const qrCodeDataUrl = await this.qrCodeService.getQrCodeAsBase64(station.code, station.stationId);
         return {
           ...station,
-          qrCodeImage,
+          qrCodeDataUrl,
         };
       }),
     );
@@ -156,7 +169,7 @@ export class StationsController {
     };
   }
 
-  // ==================== ROUTES GÉNÉRIQUES APRÈS ====================
+  // ==================== ROUTES GÉNÉRIQUES ====================
 
   @Get()
   async findAll(@Query() dto: SearchStationsDto) {
@@ -174,7 +187,7 @@ export class StationsController {
     return this.stationsService.findOne(id);
   }
 
-  // ==================== FAVORITES (Authenticated) ====================
+  // ==================== FAVORITES ====================
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/favorite')
@@ -190,19 +203,22 @@ export class StationsController {
 
   // ==================== ADMIN/OPERATOR ROUTES ====================
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Post()
   async create(@Body() dto: CreateStationDto) {
     return this.stationsService.create(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Put(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateStationDto) {
     return this.stationsService.update(id, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return this.stationsService.remove(id);

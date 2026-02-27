@@ -345,63 +345,119 @@ export class PaymentsService {
     };
   }
 
-  async findOne(id: string) {
-    const payment = await this.prisma.payment.findUnique({
-      where: { id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phone: true,
-          },
-        },
-        sessions: {
-          include: {
-            station: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-              },
-            },
-          },
+async findOne(id: string) {
+  // Charger le paiement avec l'utilisateur
+  const payment = await this.prisma.payment.findUnique({
+    where: { id },
+    include: {
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
         },
       },
-    });
+    },
+  });
 
-    if (!payment) {
-      throw new NotFoundException('Payment not found');
+  if (!payment) {
+    throw new NotFoundException('Payment not found');
+  }
+
+  // Charger la session associée (si elle existe)
+  const session = await this.prisma.chargingSession.findFirst({
+    where: {
+      paymentId: payment.id,
+    },
+    include: {
+      station: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          city: true,
+        },
+      },
+    },
+  });
+
+  // Retourner le paiement avec la session
+  return {
+    ...payment,
+    session: session || null,
+  };
+}
+
+async getStats() {
+  const [
+    total,
+    pending,
+    completed,
+    failed,
+    refunded,
+    totalAmountData,
+    completedAmountData,
+    refundedAmountData,
+    byMethodData,
+  ] = await Promise.all([
+    this.prisma.payment.count(),
+    this.prisma.payment.count({ where: { status: 'PENDING' } }),
+    this.prisma.payment.count({ where: { status: 'COMPLETED' } }),
+    this.prisma.payment.count({ where: { status: 'FAILED' } }),
+    this.prisma.payment.count({ where: { status: 'REFUNDED' } }),
+    this.prisma.payment.aggregate({
+      _sum: { amount: true },
+    }),
+    this.prisma.payment.aggregate({
+      where: { status: 'COMPLETED' },
+      _sum: { amount: true },
+    }),
+    this.prisma.payment.aggregate({
+      where: { status: 'REFUNDED' },
+      _sum: { amount: true },
+    }),
+    this.prisma.payment.groupBy({
+      by: ['method'],
+      _count: true,
+    }),
+  ]);
+
+  // Calculer les montants par méthode
+  const byMethod = {
+    ORANGE_MONEY: 0,
+    MTN_MONEY: 0,
+    NG_WALLET: 0,
+    WALLET: 0,
+    MOBILE_MONEY: 0,
+    CARD: 0,
+  };
+
+  byMethodData.forEach((item) => {
+    if (item.method in byMethod) {
+      byMethod[item.method] = item._count;
     }
+  });
 
-    return payment;
-  }
+  const totalAmount = totalAmountData._sum.amount || 0;
+  const completedAmount = completedAmountData._sum.amount || 0;
+  const refundedAmount = refundedAmountData._sum.amount || 0;
 
-  async getStats() {
-    const [total, pending, completed, failed, totalAmount, walletTransactions] =
-      await Promise.all([
-        this.prisma.payment.count(),
-        this.prisma.payment.count({ where: { status: 'PENDING' } }),
-        this.prisma.payment.count({ where: { status: 'COMPLETED' } }),
-        this.prisma.payment.count({ where: { status: 'FAILED' } }),
-        this.prisma.payment.aggregate({
-          where: { status: 'COMPLETED' },
-          _sum: { amount: true },
-        }),
-        this.prisma.walletTransaction.count(),
-      ]);
-
-    return {
-      total,
-      pending,
-      completed,
-      failed,
-      totalAmount: totalAmount._sum.amount || 0,
-      walletTransactions,
-    };
-  }
+  return {
+    total,
+    pending,
+    completed,
+    failed,
+    refunded,
+    cancelled: 0,
+    totalAmount,
+    completedAmount,
+    refundedAmount,
+    averageAmount: total > 0 ? Math.round(totalAmount / total) : 0,
+    byMethod,
+  };
+}
 
   async getMyPayments(userId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
@@ -435,4 +491,131 @@ export class PaymentsService {
       },
     };
   }
+
+  // ==================== ADMIN REFUND & EXPORT ====================
+
+async refundPayment(paymentId: string, reason?: string) {
+  const payment = await this.prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { 
+      user: true,
+      sessions: true,
+    },
+  });
+
+  if (!payment) {
+    throw new NotFoundException('Payment not found');
+  }
+
+  if (payment.status !== 'COMPLETED') {
+    throw new BadRequestException('Only completed payments can be refunded');
+  }
+
+  if (payment.status === 'REFUNDED') {
+    throw new BadRequestException('Payment already refunded');
+  }
+
+  // ⬇️ METTRE À JOUR AVEC refundReason (champ direct, pas metadata)
+  const refundedPayment = await this.prisma.payment.update({
+    where: { id: paymentId },
+    data: {
+      status: 'REFUNDED',
+      refundedAt: new Date(),
+      refundReason: reason || 'Remboursement administrateur', // ⬅️ Champ direct
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
+      },
+      sessions: {
+        include: {
+          station: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Rembourser le wallet si c'était un paiement WALLET
+  if (payment.method === 'WALLET') {
+    await this.walletService.refund(
+      payment.userId,
+      payment.amount,
+      `Remboursement paiement ${payment.reference || payment.id}${reason ? ` - ${reason}` : ''}`,
+      payment.sessions?.[0]?.id,
+    );
+  }
+
+  // Si le paiement était lié à une session, marquer comme non payée
+  if (payment.sessions && payment.sessions.length > 0) {
+    for (const session of payment.sessions) {
+      await this.prisma.chargingSession.update({
+        where: { id: session.id },
+        data: {
+          isPaid: false,
+          paymentId: null,
+        },
+      });
+    }
+  }
+
+  return refundedPayment;
+}
+
+async exportPayments(dto: PaymentFiltersDto) {
+  const { status, method, userId, startDate, endDate } = dto;
+
+  const where: any = {};
+
+  if (status) where.status = status;
+  if (method) where.method = method;
+  if (userId) where.userId = userId;
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(endDate);
+  }
+
+  const payments = await this.prisma.payment.findMany({
+    where,
+    include: {
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+        },
+      },
+      sessions: {
+        select: {
+          id: true,
+          stationId: true,
+          status: true,
+          energyConsumed: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  // Retourner les données pour export (le frontend gérera le CSV)
+  return {
+    data: payments,
+    total: payments.length,
+    exportedAt: new Date().toISOString(),
+  };
+}
 }

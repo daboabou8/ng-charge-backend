@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { SearchStationsDto } from './dto/search-stations.dto';
-import { QrCodeService } from './qrcode.service';
+import { QrCodeService } from '../qrcode/qrcode.service';
+
 @Injectable()
 export class StationsService {
   constructor(
@@ -73,6 +74,7 @@ export class StationsService {
             select: {
               sessions: true,
               reviews: true,
+              favoriteBy: true, // ⬅️ AJOUTER
             },
           },
         },
@@ -90,11 +92,11 @@ export class StationsService {
 
           return {
             ...station,
-            distance: Math.round(distance * 10) / 10, // Arrondir à 1 décimale
+            distance: Math.round(distance * 10) / 10,
           };
         })
         .filter((station) => station.distance <= radius)
-        .sort((a, b) => a.distance - b.distance) // Trier par distance
+        .sort((a, b) => a.distance - b.distance)
         .slice(skip, skip + limit);
 
       total = stations.length;
@@ -123,6 +125,7 @@ export class StationsService {
               select: {
                 sessions: true,
                 reviews: true,
+                favoriteBy: true, // ⬅️ AJOUTER
               },
             },
           },
@@ -142,7 +145,7 @@ export class StationsService {
       return {
         ...station,
         averageRating: Math.round(avgRating * 10) / 10,
-        reviews: undefined, // Ne pas retourner tous les reviews
+        reviews: undefined,
       };
     });
 
@@ -206,6 +209,7 @@ export class StationsService {
           select: {
             sessions: true,
             reviews: true,
+            favoriteBy: true, // ⬅️ AJOUTER
           },
         },
       },
@@ -273,7 +277,45 @@ export class StationsService {
 
   // ==================== ADMIN/OPERATOR ROUTES ====================
 
-async create(dto: CreateStationDto) {
+  async generateUniqueCode(): Promise<string> {
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    
+    const datePrefix = `${year}${month}${day}`;
+    const todayCode = `EVGN-${datePrefix}`; // ⬅️ CHANGÉ DE NG- à EVGN-
+    
+    const lastStation = await this.prisma.chargingStation.findFirst({
+      where: {
+        code: {
+          startsWith: todayCode,
+        },
+      },
+      orderBy: {
+        code: 'desc',
+      },
+    });
+    
+    let sequence = 1;
+    
+    if (lastStation) {
+      const lastSequence = lastStation.code.split('-')[1].slice(-2);
+      sequence = parseInt(lastSequence) + 1;
+    }
+    
+    const code = `${todayCode}${sequence.toString().padStart(2, '0')}`;
+    
+    return code;
+  }
+
+ async create(dto: CreateStationDto) {
+  // Générer automatiquement le code si non fourni
+  let code = dto.code;
+  if (!code) {
+    code = await this.generateUniqueCode();
+  }
+
   // Vérifier si le stationId existe déjà
   const existing = await this.prisma.chargingStation.findUnique({
     where: { stationId: dto.stationId },
@@ -285,23 +327,40 @@ async create(dto: CreateStationDto) {
 
   // Vérifier si le code existe déjà
   const existingCode = await this.prisma.chargingStation.findUnique({
-    where: { code: dto.code },
+    where: { code },
   });
 
   if (existingCode) {
     throw new ConflictException('Station code already exists');
   }
 
-  // ✨ GÉNÉRER AUTOMATIQUEMENT LE QR CODE SI NON FOURNI
-  let qrCode = dto.qrCode;
-  if (!qrCode) {
-    qrCode = this.qrCodeService.generateQrCodeData(dto.code, dto.stationId);
+  //  GÉNÉRER ET SAUVEGARDER LE QR CODE
+  const qrCodePath = await this.qrCodeService.generateAndSaveQrCode(
+    code,
+    dto.stationId,
+  );
+
+  // ⬇️ AJOUTER UN OPÉRATEUR PAR DÉFAUT SI MANQUANT
+  let operatorId = dto.operatorId;
+  if (!operatorId) {
+    // Récupérer le premier admin comme opérateur par défaut
+    const defaultOperator = await this.prisma.user.findFirst({
+      where: { role: 'ADMIN' },
+    });
+    if (defaultOperator) {
+      operatorId = defaultOperator.id;
+    }
   }
 
   const station = await this.prisma.chargingStation.create({
     data: {
       ...dto,
-      qrCode, // ← QR code généré automatiquement
+      code,
+      qrCode: qrCodePath,
+      operatorId, // ⬅️ Utiliser l'opérateur par défaut si manquant
+      status: dto.status || 'AVAILABLE', // ⬅️ Statut par défaut
+      numberOfPorts: dto.numberOfPorts || 1, // ⬅️ 1 port par défaut
+      isPublic: dto.isPublic ?? true, // ⬅️ Public par défaut
     },
     include: {
       operator: {
@@ -312,49 +371,80 @@ async create(dto: CreateStationDto) {
           email: true,
         },
       },
+      _count: {
+        select: {
+          sessions: true,
+          favoriteBy: true,
+        },
+      },
     },
   });
 
   return station;
 }
 
-  async update(id: string, dto: UpdateStationDto) {
-    const station = await this.prisma.chargingStation.findUnique({
-      where: { id },
+async update(id: string, dto: UpdateStationDto) {
+  const station = await this.prisma.chargingStation.findUnique({
+    where: { id },
+  });
+
+  if (!station) {
+    throw new NotFoundException('Station not found');
+  }
+
+  // ⬇️ VÉRIFIER LE CODE SI CHANGÉ
+  if (dto.code && dto.code !== station.code) {
+    const existingCode = await this.prisma.chargingStation.findUnique({
+      where: { code: dto.code },
     });
 
-    if (!station) {
-      throw new NotFoundException('Station not found');
+    if (existingCode) {
+      throw new ConflictException('Station code already exists');
+    }
+  }
+
+  // ⬇️ NE PAS PERMETTRE LA MODIFICATION DE stationId (unique et généré)
+  const { stationId, ...updateData } = dto as any;
+
+  // ⬇️ SI LE CODE CHANGE, RÉGÉNÉRER LE QR CODE
+  if (dto.code && dto.code !== station.code) {
+    // Supprimer l'ancien QR Code
+    if (station.code) {
+      await this.qrCodeService.deleteQrCode(station.code);
     }
 
-    // Vérifier le code si changé
-    if (dto.code && dto.code !== station.code) {
-      const existingCode = await this.prisma.chargingStation.findUnique({
-        where: { code: dto.code },
-      });
+    // Générer le nouveau QR Code
+    const qrCodePath = await this.qrCodeService.generateAndSaveQrCode(
+      dto.code,
+      station.stationId,
+    );
 
-      if (existingCode) {
-        throw new ConflictException('Station code already exists');
-      }
-    }
+    updateData.qrCode = qrCodePath;
+  }
 
-    const updatedStation = await this.prisma.chargingStation.update({
-      where: { id },
-      data: dto,
-      include: {
-        operator: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
+  const updatedStation = await this.prisma.chargingStation.update({
+    where: { id },
+    data: updateData,
+    include: {
+      operator: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
         },
       },
-    });
+      _count: {
+        select: {
+          sessions: true,
+          favoriteBy: true,
+        },
+      },
+    },
+  });
 
-    return updatedStation;
-  }
+  return updatedStation;
+}
 
   async remove(id: string) {
     const station = await this.prisma.chargingStation.findUnique({
@@ -363,6 +453,11 @@ async create(dto: CreateStationDto) {
 
     if (!station) {
       throw new NotFoundException('Station not found');
+    }
+
+    // 🔒 SUPPRIMER LE FICHIER QR CODE
+    if (station.code) {
+      await this.qrCodeService.deleteQrCode(station.code);
     }
 
     await this.prisma.chargingStation.delete({ where: { id } });
@@ -456,7 +551,7 @@ async create(dto: CreateStationDto) {
   // ==================== UTILITY ====================
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371; // Rayon de la Terre en km
+    const R = 6371;
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
     const a =
@@ -473,33 +568,35 @@ async create(dto: CreateStationDto) {
   private deg2rad(deg: number): number {
     return deg * (Math.PI / 180);
   }
+
+  // 🔒 NOUVELLE MÉTHODE SÉCURISÉE : Régénérer QR Code
   async regenerateQrCode(stationId: string) {
-  const station = await this.prisma.chargingStation.findUnique({
-    where: { id: stationId },
-  });
+    const station = await this.prisma.chargingStation.findUnique({
+      where: { id: stationId },
+    });
 
-  if (!station) {
-    throw new NotFoundException('Station not found');
+    if (!station) {
+      throw new NotFoundException('Station not found');
+    }
+
+    // Régénérer le QR Code (supprime l'ancien automatiquement)
+    const newQrCodePath = await this.qrCodeService.regenerateQrCode(
+      station.code,
+      station.stationId,
+    );
+
+    // Mettre à jour la DB
+    const updated = await this.prisma.chargingStation.update({
+      where: { id: stationId },
+      data: {
+        qrCode: newQrCodePath,
+      },
+    });
+
+    return {
+      station: updated,
+      qrCode: newQrCodePath,
+      message: 'QR code regenerated successfully',
+    };
   }
-
-  // Générer nouveau QR code
-  const newQrCode = this.qrCodeService.generateQrCodeData(
-    station.code,
-    station.stationId,
-  );
-
-  // Mettre à jour
-  const updated = await this.prisma.chargingStation.update({
-    where: { id: stationId },
-    data: {
-      qrCode: newQrCode,
-    },
-  });
-
-  return {
-    station: updated,
-    qrCode: newQrCode,
-    message: 'QR code regenerated successfully',
-  };
-}
 }

@@ -251,35 +251,33 @@ export class SessionsService {
     };
   }
 
-  async findOne(id: string, userId?: string) {
-    const session = await this.prisma.chargingSession.findUnique({
-      where: { id },
-      include: {
-        station: true,
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phone: true,
-          },
+async findOne(id: string, userId?: string) {
+  const session = await this.prisma.chargingSession.findUnique({
+    where: { id },
+    include: {
+      station: true,
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
         },
-        payment: true,
       },
-    });
+      payment: true,
+    },
+  });
 
-    if (!session) {
-      throw new NotFoundException('Session not found');
-    }
-
-    // Vérifier les permissions
-    if (userId && session.userId !== userId) {
-      throw new ForbiddenException('Not authorized');
-    }
-
-    return session;
+  if (!session) {
+    throw new NotFoundException('Session not found');
   }
+  if (userId && session.userId !== userId) {
+    throw new ForbiddenException('Not authorized');
+  }
+
+  return session;
+}
 
   // ==================== ADMIN ROUTES ====================
 

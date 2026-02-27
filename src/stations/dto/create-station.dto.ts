@@ -8,12 +8,14 @@ export class CreateStationDto {
   @IsString()
   name: string;
 
+  @IsOptional() 
   @IsString()
-  code: string; // Code pour scan manuel
+  code?: string; // Code pour scan manuel
 
-  @IsString()
   @IsOptional()
+  @IsString()
   qrCode?: string;
+
 
   // Location
   @IsString()

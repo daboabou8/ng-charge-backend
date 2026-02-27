@@ -13,6 +13,9 @@ import { RechargeWalletDto } from './dto/recharge-wallet.dto';
 import { PaymentFiltersDto } from './dto/payment-filters.dto';
 import { CinetpayWebhookDto } from './dto/cinetpay-webhook.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 @Controller('payments')
 export class PaymentsController {
@@ -60,12 +63,6 @@ export class PaymentsController {
     return this.paymentsService.getMyPayments(req.user.id, Number(page), Number(limit));
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.paymentsService.findOne(id);
-  }
-
   // ==================== CINETPAY WEBHOOK (Public) ====================
 
   @Post('webhook/cinetpay')
@@ -74,14 +71,17 @@ export class PaymentsController {
   }
 
   // ==================== ADMIN ROUTES ====================
+  // ⬇️ ROUTES ADMIN EN PREMIER (PLUS SPÉCIFIQUES)
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Get('admin/stats')
   async getStats() {
     return this.paymentsService.getStats();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
   @Get('admin/all')
   async findAll(@Query() dto: PaymentFiltersDto) {
     // Convertir les query params
@@ -89,5 +89,29 @@ export class PaymentsController {
     if (dto.limit) dto.limit = Number(dto.limit);
 
     return this.paymentsService.findAll(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
+  @Get('admin/export')
+  async exportPayments(@Query() dto: PaymentFiltersDto) {
+    return this.paymentsService.exportPayments(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'OPERATOR')
+  @Post('admin/:id/refund')
+  async refundPayment(
+    @Param('id') paymentId: string,
+    @Body() dto: RefundPaymentDto,
+  ) {
+    return this.paymentsService.refundPayment(paymentId, dto.reason);
+  }
+
+  // ⬇️ ROUTE GÉNÉRIQUE `:id` EN DERNIER (MOINS SPÉCIFIQUE)
+  @UseGuards(JwtAuthGuard)
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    return this.paymentsService.findOne(id);
   }
 }

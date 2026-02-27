@@ -321,8 +321,8 @@ model ChargingSession {
   cost            Float?          // GNF
   
   // Payment
-  paymentId       String?
-  payment         Payment?        @relation(fields: [paymentId], references: [id])
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
   isPaid          Boolean         @default(false)
   
   // Metadata
@@ -358,7 +358,6 @@ enum PaymentMethod {
   WALLET        // Portefeuille interne
   CASH
 }
-
 model Payment {
   id     String @id @default(uuid())
   userId String
@@ -377,13 +376,18 @@ model Payment {
   reference     String        @unique
   description   String?
   
+  // ⬇️ CHAMPS AJOUTÉS POUR REFUND ET FAILURE
+  failureReason String?       // Raison de l'échec du paiement
+  refundReason  String?       // Raison du remboursement
+  refundedAt    DateTime?     // Date du remboursement
+  
   // Metadata
   metadata      Json?
   ipAddress     String?
   userAgent     String?
   
   // Relations
-  sessions      ChargingSession[]
+  sessions ChargingSession[]
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

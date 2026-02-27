@@ -326,7 +326,7 @@ Voir [DEPLOYMENT.md](./docs/DEPLOYMENT.md) pour le guide complet.
 
 ---
 
-## 📞 Support
+## Support
 
 - **Email**: support@evcharge.gn
 - **Téléphone**: +224 XXX XX XX XX
@@ -334,28 +334,28 @@ Voir [DEPLOYMENT.md](./docs/DEPLOYMENT.md) pour le guide complet.
 
 ---
 
-## 👥 Équipe
+## Équipe
 
 **NG Technologie - Guinée 🇬🇳**
 
-- Lead Developer: [Votre Nom]
-- Backend Team: [Équipe]
+- Lead Developer: Abou DABO
+- Backend Team: N/A
 
 ---
 
-## 📄 License
+## License
 
 MIT License - Copyright (c) 2026 NG Technologie
 
 ---
 
-## 🙏 Remerciements
+## Remerciements
 
 - NestJS Framework
 - Prisma ORM
 - CitrineOS (OCPP Server)
 - Cinetpay (Payment Gateway)
-- Anthropic Claude (Development Assistant)
+- Auteur Abou DABO
 
 ---
 
