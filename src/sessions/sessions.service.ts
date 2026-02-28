@@ -355,35 +355,91 @@ async findOne(id: string, userId?: string) {
     };
   }
 
-  async getStats() {
-    const [total, active, completed, failed, cancelled, totalEnergy, totalRevenue] =
-      await Promise.all([
-        this.prisma.chargingSession.count(),
-        this.prisma.chargingSession.count({ where: { status: 'ACTIVE' } }),
-        this.prisma.chargingSession.count({ where: { status: 'COMPLETED' } }),
-        this.prisma.chargingSession.count({ where: { status: 'FAILED' } }),
-        this.prisma.chargingSession.count({ where: { status: 'CANCELLED' } }),
-        this.prisma.chargingSession.aggregate({
-          where: { status: 'COMPLETED' },
-          _sum: { energyConsumed: true },
-        }),
-        this.prisma.chargingSession.aggregate({
-          where: { status: 'COMPLETED' },
-          _sum: { cost: true },
-        }),
-      ]);
+ async getStats() {
+  const [total, active, completed, failed, cancelled, stopped, pending, totalEnergy, totalRevenue, durationResult] =
+    await Promise.all([
+      this.prisma.chargingSession.count(),
+      this.prisma.chargingSession.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.chargingSession.count({ where: { status: 'COMPLETED' } }),
+      this.prisma.chargingSession.count({ where: { status: 'FAILED' } }),
+      this.prisma.chargingSession.count({ where: { status: 'CANCELLED' } }),
+      this.prisma.chargingSession.count({ where: { status: 'STOPPED' } }),
+      this.prisma.chargingSession.count({ where: { status: 'PENDING' } }),
+      this.prisma.chargingSession.aggregate({
+        where: { status: 'COMPLETED' },
+        _sum: { energyConsumed: true },
+      }),
+      this.prisma.chargingSession.aggregate({
+        where: { status: 'COMPLETED' },
+        _sum: { cost: true },
+      }),
+      this.prisma.chargingSession.aggregate({
+        where: { status: 'COMPLETED' },
+        _avg: { duration: true },
+      }),
+    ]);
 
-    return {
-      total,
-      active,
+  // ⬇️ AJOUTER CHARTDATA POUR LES 7 DERNIERS JOURS
+  const chartData = await this.getSessionsChartData(7);
+
+  return {
+    total,
+    active,
+    completed,
+    failed,
+    cancelled,
+    stopped,
+    pending,
+    totalEnergy: totalEnergy._sum.energyConsumed || 0,
+    totalRevenue: totalRevenue._sum.cost || 0,
+    averageDuration: Math.round(durationResult._avg.duration || 0),
+    chartData, // ⬅️ AJOUTER LES DONNÉES DU GRAPHIQUE
+  };
+}
+
+// ⬇️ AJOUTER CETTE NOUVELLE MÉTHODE À LA FIN DE LA CLASSE
+private async getSessionsChartData(days: number) {
+  const result = [];
+  
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    date.setHours(0, 0, 0, 0);
+    
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const [completed, active, failed] = await Promise.all([
+      this.prisma.chargingSession.count({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+      }),
+      this.prisma.chargingSession.count({
+        where: {
+          status: 'ACTIVE',
+          createdAt: { gte: date, lt: nextDay },
+        },
+      }),
+      this.prisma.chargingSession.count({
+        where: {
+          status: 'FAILED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+      }),
+    ]);
+
+    result.push({
+      date: date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
       completed,
+      active,
       failed,
-      cancelled,
-      totalEnergy: totalEnergy._sum.energyConsumed || 0,
-      totalRevenue: totalRevenue._sum.cost || 0,
-    };
+    });
   }
 
+  return result;
+}
   async adminStopSession(sessionId: string, dto: UpdateSessionDto) {
     const session = await this.prisma.chargingSession.findUnique({
       where: { id: sessionId },

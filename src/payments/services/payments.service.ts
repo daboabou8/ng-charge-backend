@@ -346,7 +346,9 @@ export class PaymentsService {
   }
 
 async findOne(id: string) {
-  // Charger le paiement avec l'utilisateur
+  console.log('🔍 Recherche du paiement:', id);
+
+  // Charger le paiement
   const payment = await this.prisma.payment.findUnique({
     where: { id },
     include: {
@@ -366,7 +368,9 @@ async findOne(id: string) {
     throw new NotFoundException('Payment not found');
   }
 
-  // Charger la session associée (si elle existe)
+  console.log('✅ Paiement trouvé:', payment.reference);
+
+  // Charger la session liée
   const session = await this.prisma.chargingSession.findFirst({
     where: {
       paymentId: payment.id,
@@ -383,11 +387,17 @@ async findOne(id: string) {
     },
   });
 
+  console.log('📍 Session trouvée:', session ? session.id : 'AUCUNE');
+
   // Retourner le paiement avec la session
-  return {
+  const result = {
     ...payment,
     session: session || null,
   };
+
+  console.log('📦 Résultat final:', JSON.stringify(result, null, 2));
+
+  return result;
 }
 
 async getStats() {
@@ -397,16 +407,17 @@ async getStats() {
     completed,
     failed,
     refunded,
-    totalAmountData,
-    completedAmountData,
-    refundedAmountData,
-    byMethodData,
+    cancelled,
+    totalAmountResult,
+    completedAmountResult,
+    refundedAmountResult,
   ] = await Promise.all([
     this.prisma.payment.count(),
     this.prisma.payment.count({ where: { status: 'PENDING' } }),
     this.prisma.payment.count({ where: { status: 'COMPLETED' } }),
     this.prisma.payment.count({ where: { status: 'FAILED' } }),
     this.prisma.payment.count({ where: { status: 'REFUNDED' } }),
+    this.prisma.payment.count({ where: { status: 'CANCELLED' } }),
     this.prisma.payment.aggregate({
       _sum: { amount: true },
     }),
@@ -418,31 +429,10 @@ async getStats() {
       where: { status: 'REFUNDED' },
       _sum: { amount: true },
     }),
-    this.prisma.payment.groupBy({
-      by: ['method'],
-      _count: true,
-    }),
   ]);
 
-  // Calculer les montants par méthode
-  const byMethod = {
-    ORANGE_MONEY: 0,
-    MTN_MONEY: 0,
-    NG_WALLET: 0,
-    WALLET: 0,
-    MOBILE_MONEY: 0,
-    CARD: 0,
-  };
-
-  byMethodData.forEach((item) => {
-    if (item.method in byMethod) {
-      byMethod[item.method] = item._count;
-    }
-  });
-
-  const totalAmount = totalAmountData._sum.amount || 0;
-  const completedAmount = completedAmountData._sum.amount || 0;
-  const refundedAmount = refundedAmountData._sum.amount || 0;
+  // ⬇️ AJOUTER CHARTDATA POUR LES 7 DERNIERS JOURS
+  const chartData = await this.getRevenueChartData(7);
 
   return {
     total,
@@ -450,13 +440,88 @@ async getStats() {
     completed,
     failed,
     refunded,
-    cancelled: 0,
-    totalAmount,
-    completedAmount,
-    refundedAmount,
-    averageAmount: total > 0 ? Math.round(totalAmount / total) : 0,
-    byMethod,
+    cancelled,
+    totalAmount: totalAmountResult._sum.amount || 0,
+    completedAmount: completedAmountResult._sum.amount || 0,
+    refundedAmount: refundedAmountResult._sum.amount || 0,
+    averageAmount: completed > 0 ? Math.round((completedAmountResult._sum.amount || 0) / completed) : 0,
+    chartData, // ⬅️ AJOUTER LES DONNÉES DU GRAPHIQUE
   };
+}
+
+// ⬇️ AJOUTER CETTE NOUVELLE MÉTHODE À LA FIN DE LA CLASSE
+private async getRevenueChartData(days: number) {
+  const result = [];
+  
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    date.setHours(0, 0, 0, 0);
+    
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const [payments, sessions] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.payment.count({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+      }),
+    ]);
+
+    result.push({
+      date: date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
+      revenue: payments._sum.amount || 0,
+      sessions,
+    });
+  }
+
+  return result;
+}
+
+private async getRevenueChartData(days: number) {
+  const result = [];
+  
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    date.setHours(0, 0, 0, 0);
+    
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const [payments, sessions] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.payment.count({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: date, lt: nextDay },
+        },
+      }),
+    ]);
+
+    result.push({
+      date: date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }),
+      revenue: payments._sum.amount || 0,
+      sessions,
+    });
+  }
+
+  return result;
 }
 
   async getMyPayments(userId: string, page: number = 1, limit: number = 20) {

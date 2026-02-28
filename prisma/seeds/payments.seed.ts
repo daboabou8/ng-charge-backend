@@ -2,8 +2,8 @@ import { PrismaClient, PaymentStatus, PaymentMethod } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const paymentMethods: PaymentMethod[] = ['WALLET', 'MOBILE_MONEY', 'CARD'];
-const paymentStatuses: PaymentStatus[] = ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'PROCESSING'];
+const sessionPaymentMethods: PaymentMethod[] = ['WALLET', 'MOBILE_MONEY', 'CARD'];
+const walletRechargeMethods: PaymentMethod[] = ['MOBILE_MONEY', 'CARD'];
 
 function randomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
@@ -26,8 +26,11 @@ async function seedPayments() {
   console.log('🌱 Seeding payments...');
 
   const users = await prisma.user.findMany();
-  const sessions = await prisma.chargingSession.findMany({
-    where: { status: 'COMPLETED' },
+  const completedSessions = await prisma.chargingSession.findMany({
+    where: { status: 'COMPLETED', isPaid: false },
+  });
+  const activeSessions = await prisma.chargingSession.findMany({
+    where: { status: 'ACTIVE' },
   });
 
   if (users.length === 0) {
@@ -35,181 +38,279 @@ async function seedPayments() {
     return;
   }
 
-  const paymentsToCreate: any[] = [];
-
-  // 1. Paiements COMPLETED (60%) - Certains liés à des sessions
-  for (let i = 0; i < 30; i++) {
-    const user = randomElement(users);
-    const method = randomElement(paymentMethods);
-    const amount = randomAmount();
-    const createdAt = randomDate(30);
-    const completedAt = new Date(createdAt.getTime() + Math.random() * 3600000);
-
-    // ⬇️ LIER 10 PAIEMENTS À DES SESSIONS
-    const linkedSession = i < 10 && sessions.length > i ? sessions[i] : null;
-
-    paymentsToCreate.push({
-      userId: user.id,
-      amount: linkedSession ? linkedSession.cost : amount,
-      currency: 'GNF',
-      method,
-      status: 'COMPLETED' as PaymentStatus,
-      reference: `PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-      description: method === 'WALLET' 
-        ? 'Paiement session de recharge via NG Wallet'
-        : `Paiement session de recharge via ${method}`,
-      createdAt,
-      completedAt,
-      cinetpayTransactionId: method !== 'WALLET' ? `EVCHARGE-${Date.now()}-${i}` : null,
-      // ⬇️ NE PAS AJOUTER paymentId ICI, on le fera après avec update
-      sessionId: linkedSession?.id || null, // Garder pour référence
-    });
+  if (completedSessions.length === 0) {
+    console.log('⚠️  Aucune session COMPLETED trouvée.');
   }
 
-  // 2. Paiements PENDING (15%)
-  for (let i = 0; i < 8; i++) {
-    const user = randomElement(users);
-    const method = randomElement(['MOBILE_MONEY', 'CARD']);
-    const amount = randomAmount();
-    const createdAt = randomDate(3);
+  console.log(`📊 ${completedSessions.length} sessions COMPLETED disponibles`);
+  console.log(`📊 ${activeSessions.length} sessions ACTIVE disponibles`);
 
-    paymentsToCreate.push({
-      userId: user.id,
-      amount,
-      currency: 'GNF',
-      method,
-      status: 'PENDING' as PaymentStatus,
-      reference: `PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-      description: `Paiement en attente via ${method}`,
-      createdAt,
-      cinetpayTransactionId: `EVCHARGE-${Date.now()}-PENDING-${i}`,
-      cinetpayPaymentUrl: `https://checkout.cinetpay.com/payment/${i}`,
-      sessionId: null,
-    });
-  }
+  let paymentsCreated = 0;
 
-  // 3. Paiements PROCESSING (10%)
-  for (let i = 0; i < 5; i++) {
-    const user = randomElement(users);
-    const method = randomElement(['MOBILE_MONEY', 'CARD']);
-    const amount = randomAmount();
-    const createdAt = randomDate(1);
+  // ============================================================================
+  // PARTIE 1 : PAIEMENTS DE SESSIONS DE RECHARGE
+  // ============================================================================
 
-    paymentsToCreate.push({
-      userId: user.id,
-      amount,
-      currency: 'GNF',
-      method,
-      status: 'PROCESSING' as PaymentStatus,
-      reference: `PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-      description: `Paiement en cours via ${method}`,
-      createdAt,
-      cinetpayTransactionId: `EVCHARGE-${Date.now()}-PROC-${i}`,
-      cinetpayPaymentUrl: `https://checkout.cinetpay.com/payment/${i}`,
-      sessionId: null,
-    });
-  }
+  console.log('\n💚 === PAIEMENTS DE SESSIONS DE RECHARGE ===');
 
-  // 4. Paiements FAILED (10%)
-  for (let i = 0; i < 5; i++) {
-    const user = randomElement(users);
-    const method = randomElement(['MOBILE_MONEY', 'CARD']);
-    const amount = randomAmount();
-    const createdAt = randomDate(7);
-    const failedAt = new Date(createdAt.getTime() + Math.random() * 1800000);
-
-    paymentsToCreate.push({
-      userId: user.id,
-      amount,
-      currency: 'GNF',
-      method,
-      status: 'FAILED' as PaymentStatus,
-      reference: `PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-      description: `Paiement échoué via ${method}`,
-      createdAt,
-      failedAt,
-      // ⬇️ UTILISER failureReason (champ direct)
-      failureReason: randomElement([
-        'Solde insuffisant',
-        'Transaction annulée par l\'utilisateur',
-        'Erreur réseau',
-        'Timeout',
-      ]),
-      cinetpayTransactionId: `EVCHARGE-${Date.now()}-FAIL-${i}`,
-      sessionId: null,
-    });
-  }
-
-  // 5. Paiements REFUNDED (5%)
-  for (let i = 0; i < 3; i++) {
-    const user = randomElement(users);
-    const method = randomElement(paymentMethods);
-    const amount = randomAmount();
-    const createdAt = randomDate(15);
-    const completedAt = new Date(createdAt.getTime() + Math.random() * 3600000);
-    const refundedAt = new Date(completedAt.getTime() + Math.random() * 86400000);
-
-    paymentsToCreate.push({
-      userId: user.id,
-      amount,
-      currency: 'GNF',
-      method,
-      status: 'REFUNDED' as PaymentStatus,
-      reference: `PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-      description: `Paiement remboursé via ${method}`,
-      createdAt,
-      completedAt,
-      refundedAt,
-      // ⬇️ UTILISER refundReason (champ direct)
-      refundReason: randomElement([
-        'Annulation de session',
-        'Erreur de facturation',
-        'Demande du client',
-        'Session interrompue',
-      ]),
-      cinetpayTransactionId: method !== 'WALLET' ? `EVCHARGE-${Date.now()}-REF-${i}` : null,
-      sessionId: null,
-    });
-  }
-
-  console.log(`📝 Création de ${paymentsToCreate.length} paiements...`);
-
-  // ⬇️ CRÉER LES PAIEMENTS ET LIER AUX SESSIONS
-  for (const paymentData of paymentsToCreate) {
-    const { sessionId, ...paymentFields } = paymentData;
+  // 1A. Paiements COMPLETED pour sessions terminées
+  console.log('\n✅ Création des paiements COMPLETED pour sessions...');
+  
+  for (const session of completedSessions) {
+    const method = randomElement(sessionPaymentMethods) as PaymentMethod;
+    const createdAt = new Date(session.endTime!.getTime() + Math.random() * 300000);
+    const completedAt = new Date(createdAt.getTime() + Math.random() * 60000);
 
     const payment = await prisma.payment.create({
-      data: paymentFields,
+      data: {
+        userId: session.userId,
+        amount: session.cost || 0,
+        currency: 'GNF',
+        method: method,
+        status: 'COMPLETED' as PaymentStatus,
+        reference: `SESSION-PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        description: method === 'WALLET' 
+          ? 'Paiement session de recharge via NG Wallet'
+          : `Paiement session de recharge via ${method}`,
+        createdAt,
+        completedAt,
+        cinetpayTransactionId: method !== 'WALLET' ? `EVCHARGE-${Date.now()}-${paymentsCreated}` : null,
+      },
     });
 
-    // ⬇️ SI LIÉ À UNE SESSION, METTRE À JOUR LA SESSION
-    if (sessionId) {
+    await prisma.chargingSession.update({
+      where: { id: session.id },
+      data: { 
+        paymentId: payment.id,
+        isPaid: true,
+      },
+    });
+
+    paymentsCreated++;
+    console.log(`   ✅ Paiement ${session.id.substring(0, 8)}... -> ${method} (${session.cost} GNF)`);
+  }
+
+  // 1B. Paiements PENDING pour sessions actives
+  console.log('\n⏳ Création des paiements PENDING pour sessions actives...');
+  
+  for (const session of activeSessions.slice(0, 2)) {
+    const method = randomElement(['MOBILE_MONEY', 'CARD']) as PaymentMethod;
+    const createdAt = new Date(session.startTime.getTime() + 60000);
+
+    const payment = await prisma.payment.create({
+      data: {
+        userId: session.userId,
+        amount: session.cost || 0,
+        currency: 'GNF',
+        method: method,
+        status: 'PENDING' as PaymentStatus,
+        reference: `SESSION-PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        description: `Paiement session en attente via ${method}`,
+        createdAt,
+        cinetpayTransactionId: `EVCHARGE-${Date.now()}-PENDING-${paymentsCreated}`,
+        cinetpayPaymentUrl: `https://checkout.cinetpay.com/payment/${paymentsCreated}`,
+      },
+    });
+
+    await prisma.chargingSession.update({
+      where: { id: session.id },
+      data: { paymentId: payment.id },
+    });
+
+    paymentsCreated++;
+    console.log(`   ⏳ Paiement ${session.id.substring(0, 8)}... -> PENDING`);
+  }
+
+  // 1C. Paiements FAILED
+  console.log('\n❌ Création des paiements FAILED pour sessions...');
+  
+  const station = await prisma.chargingStation.findFirst();
+  
+  if (station) {
+    for (let i = 0; i < 2; i++) {
+      const user = randomElement(users);
+      const createdAt = randomDate(7);
+      
+      const failedSession = await prisma.chargingSession.create({
+        data: {
+          userId: user.id,
+          stationId: station.id,
+          connectorId: 1,
+          status: 'FAILED',
+          startTime: createdAt,
+          endTime: new Date(createdAt.getTime() + 120000),
+          duration: 120,
+          meterStart: 0,
+          meterStop: 200,
+          energyConsumed: 0.2,
+          pricePerKwh: 2500,
+          cost: 500,
+          isPaid: false,
+          failureReason: 'Connexion perdue avec le véhicule',
+        },
+      });
+
+      const failedAt = new Date(createdAt.getTime() + Math.random() * 1800000);
+
+      const payment = await prisma.payment.create({
+        data: {
+          userId: user.id,
+          amount: failedSession.cost!,
+          currency: 'GNF',
+          method: randomElement(['MOBILE_MONEY', 'CARD']) as PaymentMethod,
+          status: 'FAILED' as PaymentStatus,
+          reference: `SESSION-PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
+          description: `Paiement session échoué`,
+          createdAt,
+          failedAt,
+          failureReason: randomElement([
+            'Solde insuffisant',
+            'Transaction annulée',
+            'Erreur réseau',
+            'Timeout',
+          ]),
+          cinetpayTransactionId: `EVCHARGE-${Date.now()}-FAIL-${i}`,
+        },
+      });
+
       await prisma.chargingSession.update({
-        where: { id: sessionId },
+        where: { id: failedSession.id },
         data: { paymentId: payment.id },
       });
+
+      paymentsCreated++;
+      console.log(`   ❌ Paiement FAILED ${failedSession.id.substring(0, 8)}...`);
     }
   }
 
-  console.log(`✅ ${paymentsToCreate.length} paiements créés avec succès !`);
+  // 1D. Paiements REFUNDED
+  console.log('\n🔄 Création des paiements REFUNDED pour sessions...');
+  
+  const sessionsToRefund = await prisma.chargingSession.findMany({
+    where: { status: 'COMPLETED', isPaid: true },
+    take: 2,
+  });
 
-  const stats = {
-    COMPLETED: paymentsToCreate.filter(p => p.status === 'COMPLETED').length,
-    PENDING: paymentsToCreate.filter(p => p.status === 'PENDING').length,
-    PROCESSING: paymentsToCreate.filter(p => p.status === 'PROCESSING').length,
-    FAILED: paymentsToCreate.filter(p => p.status === 'FAILED').length,
-    REFUNDED: paymentsToCreate.filter(p => p.status === 'REFUNDED').length,
-  };
+  for (const session of sessionsToRefund) {
+    const method = randomElement(sessionPaymentMethods) as PaymentMethod;
+    const createdAt = new Date(session.endTime!.getTime() + Math.random() * 300000);
+    const completedAt = new Date(createdAt.getTime() + Math.random() * 3600000);
+    const refundedAt = new Date(completedAt.getTime() + Math.random() * 86400000);
 
-  console.log('\n📊 Répartition des paiements :');
-  console.log(`   ✅ Complétés: ${stats.COMPLETED}`);
-  console.log(`   ⏳ En attente: ${stats.PENDING}`);
-  console.log(`   🔄 En traitement: ${stats.PROCESSING}`);
-  console.log(`   ❌ Échoués: ${stats.FAILED}`);
-  console.log(`   🔙 Remboursés: ${stats.REFUNDED}`);
+    const payment = await prisma.payment.create({
+      data: {
+        userId: session.userId,
+        amount: session.cost || 0,
+        currency: 'GNF',
+        method: method,
+        status: 'REFUNDED' as PaymentStatus,
+        reference: `SESSION-PAY-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        description: `Paiement session remboursé via ${method}`,
+        createdAt,
+        completedAt,
+        refundedAt,
+        refundReason: randomElement([
+          'Annulation de session',
+          'Erreur de facturation',
+          'Demande du client',
+          'Session interrompue',
+        ]),
+        cinetpayTransactionId: method !== 'WALLET' ? `EVCHARGE-${Date.now()}-REF-${paymentsCreated}` : null,
+      },
+    });
 
-  const totalAmount = paymentsToCreate.reduce((sum, p) => sum + p.amount, 0);
-  console.log(`\n💰 Montant total: ${totalAmount.toLocaleString()} GNF`);
+    await prisma.chargingSession.update({
+      where: { id: session.id },
+      data: { 
+        paymentId: payment.id,
+        isPaid: false,
+      },
+    });
+
+    paymentsCreated++;
+    console.log(`   🔄 Paiement REFUNDED ${session.id.substring(0, 8)}...`);
+  }
+
+  // ============================================================================
+  // PARTIE 2 : RECHARGES WALLET NG WALLET
+  // ============================================================================
+
+  console.log('\n💰 === RECHARGES WALLET NG WALLET (via Cinetpay) ===');
+  console.log('ℹ️  Ces paiements NE sont PAS liés à des sessions de recharge');
+  
+  for (let i = 0; i < 3; i++) {
+    const user = randomElement(users);
+    const amount = randomAmount();
+    const createdAt = randomDate(15);
+    const completedAt = new Date(createdAt.getTime() + Math.random() * 1800000);
+
+    await prisma.payment.create({
+      data: {
+        userId: user.id,
+        amount,
+        currency: 'GNF',
+        method: randomElement(walletRechargeMethods) as PaymentMethod,
+        status: 'COMPLETED' as PaymentStatus,
+        reference: `WALLET-RECHARGE-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
+        description: `Recharge NG Wallet ${amount} GNF`,
+        createdAt,
+        completedAt,
+        cinetpayTransactionId: `EVCHARGE-${Date.now()}-WALLET-${i}`,
+      },
+    });
+
+    paymentsCreated++;
+    const userName = `${user.firstName} ${user.lastName}`;
+    console.log(`   💰 Recharge wallet ${amount} GNF pour ${userName}`);
+  }
+
+  // ============================================================================
+  // STATISTIQUES FINALES
+  // ============================================================================
+  console.log('\n📊 =============== STATISTIQUES FINALES ===============');
+  console.log(`   ✅ Total paiements créés: ${paymentsCreated}`);
+  
+  const stats = await prisma.payment.groupBy({
+    by: ['status'],
+    _count: true,
+  });
+
+  console.log('\n📈 Par statut :');
+  stats.forEach(stat => {
+    console.log(`   ${stat.status}: ${stat._count}`);
+  });
+
+  const paymentsWithSession = await prisma.payment.count({
+    where: {
+      sessions: {
+        some: {},
+      },
+    },
+  });
+
+  const paymentsWithoutSession = await prisma.payment.count({
+    where: {
+      sessions: {
+        none: {},
+      },
+    },
+  });
+
+  console.log('\n🔗 Par type :');
+  console.log('   Paiements de sessions:', paymentsWithSession);
+  console.log('   Recharges wallet:', paymentsWithoutSession);
+  
+  const methodStats = await prisma.payment.groupBy({
+    by: ['method'],
+    _count: true,
+  });
+
+  console.log('\n💳 Par méthode :');
+  methodStats.forEach(stat => {
+    const methodName = stat.method || 'NULL';
+    const count = stat._count;
+    console.log(`   ${methodName}: ${count}`);
+  });
 }
 
 async function seedWallets() {
@@ -225,7 +326,6 @@ async function seedWallets() {
     if (!existingWallet) {
       const balance = Math.floor(Math.random() * 100000) + 10000;
 
-      // Créer le wallet
       const wallet = await prisma.wallet.create({
         data: {
           userId: user.id,
@@ -233,7 +333,6 @@ async function seedWallets() {
         },
       });
 
-      // Créer la transaction initiale
       await prisma.walletTransaction.create({
         data: {
           walletId: wallet.id,
@@ -245,7 +344,9 @@ async function seedWallets() {
         },
       });
 
-      console.log(`   ✅ Wallet créé pour ${user.firstName} ${user.lastName}: ${balance.toLocaleString()} GNF`);
+      const userName = `${user.firstName} ${user.lastName}`;
+      const balanceFormatted = balance.toLocaleString();
+      console.log(`   ✅ Wallet créé pour ${userName}: ${balanceFormatted} GNF`);
     }
   }
 }

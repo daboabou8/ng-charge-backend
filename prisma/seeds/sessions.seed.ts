@@ -26,6 +26,7 @@ export async function main() {
   console.log('');
   console.log('📊 Création des sessions de test...');
 
+  // ⬇️ SESSIONS COMPLETED - MAIS PAS ENCORE PAYÉES (payments.seed.ts les paiera)
   // Session 1 : Terminée (hier)
   const session1 = await prisma.chargingSession.create({
     data: {
@@ -41,7 +42,7 @@ export async function main() {
       energyConsumed: 15.5, // kWh
       pricePerKwh: 2500,
       cost: 38750,
-      isPaid: true,
+      isPaid: false, // ⬅️ PAS ENCORE PAYÉE (sera payée dans payments.seed.ts)
     },
   });
   console.log('✅ Session 1 créée (COMPLETED):', session1.id);
@@ -96,7 +97,7 @@ export async function main() {
       energyConsumed: 12.3, // kWh
       pricePerKwh: 2500,
       cost: 30750,
-      isPaid: true,
+      isPaid: false, // ⬅️ PAS ENCORE PAYÉE
     },
   });
   console.log('✅ Session 4 créée (COMPLETED):', session4.id);
@@ -137,7 +138,7 @@ export async function main() {
       energyConsumed: 18.7, // kWh
       pricePerKwh: 2500,
       cost: 46750,
-      isPaid: true,
+      isPaid: false, // ⬅️ PAS ENCORE PAYÉE
     },
   });
   console.log('✅ Session 6 créée (COMPLETED):', session6.id);
@@ -164,14 +165,14 @@ export async function main() {
   console.log('');
   console.log('🎉 Seed sessions terminé avec succès !');
   console.log('📊 7 sessions créées :');
-  console.log('   - 3 terminées (COMPLETED)');
+  console.log('   - 3 terminées (COMPLETED) → seront payées dans payments.seed.ts');
   console.log('   - 1 active (ACTIVE)');
   console.log('   - 1 en attente (PENDING)');
   console.log('   - 1 échouée (FAILED)');
   console.log('   - 1 annulée (CANCELLED)');
   console.log('');
   console.log('🔥 Total énergie: 55.2 kWh');
-  console.log('💰 Total revenus: 138,000 GNF');
+  console.log('💰 Total coût sessions: 138,000 GNF');
 }
 
 // Permettre l'exécution directe

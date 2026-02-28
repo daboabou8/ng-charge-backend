@@ -171,16 +171,10 @@ export class StationsController {
 
   // ==================== ROUTES GÉNÉRIQUES ====================
 
-  @Get()
-  async findAll(@Query() dto: SearchStationsDto) {
-    if (dto.page) dto.page = Number(dto.page);
-    if (dto.limit) dto.limit = Number(dto.limit);
-    if (dto.latitude) dto.latitude = Number(dto.latitude);
-    if (dto.longitude) dto.longitude = Number(dto.longitude);
-    if (dto.radius) dto.radius = Number(dto.radius);
-
-    return this.stationsService.findAll(dto);
-  }
+@Get()
+async findAll(@Query() dto: SearchStationsDto) {
+  return this.stationsService.findAll(dto);
+}
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
