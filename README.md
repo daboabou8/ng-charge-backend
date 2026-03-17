@@ -119,32 +119,6 @@ Voir [DATABASE.md](./docs/DATABASE.md) pour le schéma complet.
 
 ---
 
-## 🚀 Installation Rapide
-
-### Prérequis
-- Node.js v20.14.0+
-- PostgreSQL 18.2+
-- npm 10.8.2+
-
-### Installation
-```bash
-# Cloner le repo
-git clone https://github.com/your-org/ev-charge-guinee-backend.git
-cd ev-charge-guinee-backend
-
-# Installer les dépendances
-npm install --legacy-peer-deps
-
-# Configurer .env
-cp .env.example .env
-# Éditer .env avec vos configurations
-
-# Créer la base de données
-psql -U postgres
-CREATE DATABASE evcharge_dev;
-CREATE USER evcharge_user WITH PASSWORD 'VotreMotDePasse';
-GRANT ALL PRIVILEGES ON DATABASE evcharge_dev TO evcharge_user;
-\q
 
 # Générer Prisma Client
 npx prisma generate
@@ -155,10 +129,6 @@ npx prisma migrate dev
 # Démarrer le serveur
 npm run start:dev
 ```
-
-Le serveur démarre sur `http://localhost:3000`
-
-Voir [INSTALLATION.md](./docs/INSTALLATION.md) pour plus de détails.
 
 ---
 
@@ -224,9 +194,9 @@ PORT=3000
 NODE_ENV=development
 
 # CitrineOS
-CITRINEOS_API_URL="http://54.89.130.36:8080"
-CITRINEOS_WS_OCPP16_URL="ws://54.89.130.36:8092"
-CITRINEOS_WS_OCPP201_URL="ws://54.89.130.36:8081"
+CITRINEOS_API_URL=""
+CITRINEOS_WS_OCPP16_URL="ws://"
+CITRINEOS_WS_OCPP201_URL="ws://"
 
 # Cinetpay
 CINETPAY_API_KEY="your-api-key"
@@ -257,7 +227,7 @@ FRONTEND_URL="http://localhost:3001"
    }
 
 4. Démarrer charge
-   POST /sessions/:id/start
+   POST /sessions/:id/start 
 
 5. Monitoring temps réel
    GET /sessions/my/active
@@ -289,20 +259,6 @@ npm run test:cov
 
 ---
 
-## 🚢 Déploiement
-
-### Production (AWS EC2)
-```bash
-# Build
-npm run build
-
-# Démarrer en production
-npm run start:prod
-```
-
-Voir [DEPLOYMENT.md](./docs/DEPLOYMENT.md) pour le guide complet.
-
----
 
 ## 📈 Performances
 

@@ -7,10 +7,17 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // CORS
+  // ✅ CORS - Ajoute ton IP mobile
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3001'],
+    origin: [
+      'http://localhost:5173',        // Frontend web
+      'http://localhost:3001',        
+      'http://10.70.194.85:3000',    // Ton backend depuis mobile
+      '*'                             // Accepte toutes les origines (dev seulement)
+    ],
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
   // Validation globale
@@ -27,13 +34,13 @@ async function bootstrap() {
     prefix: '/uploads/avatars/',
   });
 
-  // ℹ️ Les QR codes sont accessibles UNIQUEMENT via l'API en base64
-  // Pas d'accès direct par URL pour plus de sécurité
-
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  
+  // ✅ IMPORTANT : Écoute sur TOUTES les interfaces réseau (0.0.0.0)
+  await app.listen(port, '0.0.0.0');
   
   console.log(`🚀 Application running on: http://localhost:${port}`);
+  console.log(`📱 Mobile access: http://10.70.194.85:${port}`);
   console.log(`🔒 QR Codes sécurisés (API uniquement)`);
 }
 

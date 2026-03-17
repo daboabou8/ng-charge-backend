@@ -9,6 +9,8 @@ import { StationsModule } from './stations/stations.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CitrineosModule } from './citrineos/citrineos.module';
+import { SettingsModule } from './settings/settings.module';
+import { HealthController } from './health/health.controller'; 
 
 @Module({
   imports: [
@@ -22,8 +24,9 @@ import { CitrineosModule } from './citrineos/citrineos.module';
     SessionsModule,
     PaymentsModule,
     CitrineosModule,
+    SettingsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController], 
   providers: [AppService],
 })
 export class AppModule {}

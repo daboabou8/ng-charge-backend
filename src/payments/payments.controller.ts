@@ -9,24 +9,28 @@ import {
   Request,
 } from '@nestjs/common';
 import { PaymentsService } from './services/payments.service';
-import { RechargeWalletDto } from './dto/recharge-wallet.dto';
+import { WalletService } from './services/wallet.service';
+import { RechargePinDto } from './dto/recharge-pin.dto';
 import { PaymentFiltersDto } from './dto/payment-filters.dto';
 import { CinetpayWebhookDto } from './dto/cinetpay-webhook.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 
 @Controller('payments')
 export class PaymentsController {
-  constructor(private paymentsService: PaymentsService) {}
+  constructor(
+    private paymentsService: PaymentsService,
+    private walletService: WalletService,
+  ) {}
 
   // ==================== WALLET ROUTES (Authenticated) ====================
 
   @UseGuards(JwtAuthGuard)
   @Get('wallet/my')
   async getMyWallet(@Request() req) {
-    return this.paymentsService.getMyWallet(req.user.id);
+    return this.walletService.getOrCreateWallet(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -36,13 +40,13 @@ export class PaymentsController {
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20',
   ) {
-    return this.paymentsService.getMyTransactions(req.user.id, Number(page), Number(limit));
+    return this.walletService.getTransactions(req.user.id, Number(page), Number(limit));
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('wallet/recharge')
-  async rechargeWallet(@Request() req, @Body() dto: RechargeWalletDto) {
-    return this.paymentsService.rechargeWallet(req.user.id, dto);
+  @Post('wallet/recharge/pin')
+  async rechargeWithPin(@Request() req: { user: { id: string } }, @Body() dto: RechargePinDto) {
+    return this.walletService.rechargeWithPin(req.user.id, dto.pin, dto.amount);
   }
 
   // ==================== SESSION PAYMENT (Authenticated) ====================

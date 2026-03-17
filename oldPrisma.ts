@@ -1,6 +1,6 @@
 // ============================================================================
 // EV CHARGE GUINÉE - COMPLETE DATABASE SCHEMA
-// Covers all 137 functional requirements dsb@gmail.com:123
+// Covers all 137 functional requirements
 // Version: 1.0
 // ============================================================================
 
@@ -18,16 +18,16 @@ datasource db {
 // ============================================================================
 
 enum UserRole {
-  ADMIN
-  OPERATOR
-  USER
+  ADMIN // Administrateur (PROFIL 3)
+  OPERATOR // Opérateur (PROFIL 2)
+  USER // Utilisateur final (PROFIL 1)
 }
 
 enum UserStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
-  PENDING
+  PENDING // En attente de vérification email
 }
 
 model User {
@@ -81,7 +81,7 @@ model UserProfile {
   postalCode  String?
   dateOfBirth DateTime?
 
-  // Preferences
+  // Preferences (Req 31)
   language           String  @default("fr")
   notifications      Boolean @default(true)
   emailNotifications Boolean @default(true)
@@ -100,60 +100,60 @@ model UserProfile {
 }
 
 // ============================================================================
-// CHARGING STATIONS
+// CHARGING STATIONS (Req 1-8, 43-48, 70-75)
 // ============================================================================
 
 enum StationStatus {
-  AVAILABLE
-  OCCUPIED
-  OUT_OF_SERVICE
-  MAINTENANCE
-  OFFLINE
+  AVAILABLE // Disponible
+  OCCUPIED // En cours d'utilisation
+  OUT_OF_SERVICE // Hors service
+  MAINTENANCE // En maintenance
+  OFFLINE // Hors ligne
 }
 
 enum ConnectorType {
-  TYPE1
-  TYPE2
-  CCS_COMBO
-  CHADEMO
-  GB_T
-  TESLA
+  TYPE1 // J1772
+  TYPE2 // Mennekes
+  CCS_COMBO // CCS Combo
+  CHADEMO // CHAdeMO
+  GB_T // GB/T (Chine)
+  TESLA // Tesla Supercharger
 }
 
 model ChargingStation {
   id        String  @id @default(uuid())
-  stationId String  @unique
+  stationId String  @unique // ID CitrineOS
   name      String
-  code      String  @unique
-  qrCode    String?
+  code      String  @unique // Code pour scan manuel (Req 7)
+  qrCode    String? // QR Code data (Req 6)
 
-  // Location
+  // Location (Req 1-5)
   address    String
   city       String
   postalCode String?
   latitude   Float
   longitude  Float
 
-  // Details
-  power         Float
+  // Details (Req 3)
+  power         Float // kW
   connectorType ConnectorType
   numberOfPorts Int           @default(1)
   status        StationStatus @default(AVAILABLE)
 
-  // Pricing
-  pricePerKwh Float
+  // Pricing (Req 48, 74)
+  pricePerKwh Float // GNF/kWh
 
-  // Operator
+  // Operator (Req 73)
   operatorId String?
   operator   User?   @relation("StationOperator", fields: [operatorId], references: [id])
 
   // Images
-  photos String[]
+  photos String[] // Array of image URLs
 
   // Metadata
   isPublic    Boolean  @default(true)
   description String?
-  amenities   String[]
+  amenities   String[] // ["WiFi", "Cafe", "Restroom"]
 
   // CitrineOS sync
   citrineosSyncedAt DateTime?
@@ -175,45 +175,45 @@ model ChargingStation {
 }
 
 // ============================================================================
-// CHARGING OFFERS
+// CHARGING OFFERS (Req 9-12, 76-81)
 // ============================================================================
 
 enum OfferType {
-  QUICK
-  STANDARD
-  FULL
+  QUICK // Rapide (30 min)
+  STANDARD // Standard (1h)
+  FULL // Complète (2h+)
 }
 
 model ChargingOffer {
   id          String  @id @default(uuid())
-  name        String
+  name        String // "Recharge Rapide"
   description String?
 
   // Tarification
-  price       Float
-  pricePerKwh Float?
+  price       Float // GNF (prix fixe ou prix de base)
+  pricePerKwh Float? // GNF/kWh (alternative)
   currency    String @default("GNF")
 
-  // Puissance
-  minPower Float?
-  maxPower Float?
+  // Puissance (pour filtrer les bornes compatibles)
+  minPower Float? // Puissance minimale (kW)
+  maxPower Float? // Puissance maximale (kW)
 
   // Zones géographiques
-  zones String[]
+  zones String[] // ["Conakry", "Kindia", "All"]
 
-  // Horaires
-  startTime String?
-  endTime   String?
+  // Horaires (optionnel - pour tarifs heures pleines/creuses)
+  startTime String? // "00:00"
+  endTime   String? // "23:59"
 
-  // Jours de la semaine
-  activeDays String[]
+  // Jours de la semaine (optionnel)
+  activeDays String[] // ["MONDAY", "TUESDAY", etc.]
 
-  // Type d'offre
-  type     OfferType?
-  duration Int?
-  power    Float?
+  // Type d'offre (optionnel, pour compatibilité)
+  type     OfferType? // Si tu veux garder l'enum existant
+  duration Int? // Minutes (si type est défini)
+  power    Float? // kW (si type est défini)
 
-  // Promo
+  // Promo (Req 80-81)
   isPromo    Boolean   @default(false)
   promoPrice Float?
   promoStart DateTime?
@@ -238,7 +238,7 @@ model ChargingOffer {
 }
 
 // ============================================================================
-// VEHICLES
+// VEHICLES (User vehicles)
 // ============================================================================
 
 enum VehicleType {
@@ -260,8 +260,8 @@ model Vehicle {
   color            String?
   licensePlate     String?     @unique
   vehicleType      VehicleType @default(CAR)
-  batteryCapacity  Float?
-  maxChargingPower Float?
+  batteryCapacity  Float? // kWh
+  maxChargingPower Float? // kW
   photo            String?
   isDefault        Boolean     @default(false)
 
@@ -305,7 +305,7 @@ model RfidCard {
 }
 
 // ============================================================================
-// CHARGING SESSIONS
+// CHARGING SESSIONS (Req 18-22, 26-29, 54-58, 118-122)
 // ============================================================================
 
 enum SessionStatus {
@@ -331,16 +331,16 @@ model ChargingSession {
   status    SessionStatus @default(PENDING)
   startTime DateTime      @default(now())
   endTime   DateTime?
-  duration  Int?
+  duration  Int? // Seconds
 
-  // Energy
-  meterStart     Float?
-  meterStop      Float?
-  energyConsumed Float?
+  // Energy (Req 22)
+  meterStart     Float? // Wh
+  meterStop      Float? // Wh
+  energyConsumed Float? // kWh
 
-  // Cost
+  // Cost (Req 121)
   pricePerKwh Float?
-  cost        Float?
+  cost        Float? // GNF
 
   // Payment
   paymentId String?
@@ -366,55 +366,7 @@ model ChargingSession {
 }
 
 // ============================================================================
-// WALLETS (NG Wallet)
-// ============================================================================
-
-model Wallet {
-  id       String @id @default(uuid())
-  userId   String @unique
-  balance  Float  @default(200000) // 200K GNF par défaut
-  currency String @default("GNF")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions WalletTransaction[]
-
-  @@index([userId])
-  @@map("wallets")
-}
-
-enum WalletTransactionType {
-  CREDIT
-  DEBIT
-  REFUND
-  BONUS
-}
-
-model WalletTransaction {
-  id            String                @id @default(uuid())
-  walletId      String
-  type          WalletTransactionType
-  amount        Float
-  balanceBefore Float
-  balanceAfter  Float
-  description   String?
-  reference     String? // sessionId, paymentId, etc.
-  metadata      Json?
-
-  createdAt DateTime @default(now())
-
-  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
-
-  @@index([walletId])
-  @@index([reference])
-  @@index([createdAt])
-  @@map("wallet_transactions")
-}
-
-// ============================================================================
-// PAYMENTS
+// PAYMENTS (Req 13-17, 82-88)
 // ============================================================================
 
 enum PaymentStatus {
@@ -427,12 +379,9 @@ enum PaymentStatus {
 }
 
 enum PaymentMethod {
-  NG_WALLET
-  CARD
-  ORANGE_MONEY
-  MTN_MONEY
-  MOBILE_MONEY // Pour compatibilité
-  WALLET // Pour compatibilité
+  MOBILE_MONEY // NG Wallet, Orange Money, MTN
+  CARD // Visa, Mastercard
+  WALLET // Portefeuille interne
   CASH
 }
 
@@ -441,23 +390,23 @@ model Payment {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Cinetpay
+  // Cinetpay (Req 14)
   cinetpayTransactionId String? @unique
   cinetpayPaymentToken  String?
   cinetpayPaymentUrl    String?
-  cinetpayOperator      String?
+  cinetpayOperator      String? // OMGN, MTN, etc.
 
   amount      Float
   currency    String         @default("GNF")
   method      PaymentMethod?
   status      PaymentStatus  @default(PENDING)
-  reference   String?        @unique
+  reference   String         @unique
   description String?
 
-  // Refund & Failure
-  failureReason String?
-  refundReason  String?
-  refundedAt    DateTime?
+  // ⬇️ CHAMPS AJOUTÉS POUR REFUND ET FAILURE
+  failureReason String? // Raison de l'échec du paiement
+  refundReason  String? // Raison du remboursement
+  refundedAt    DateTime? // Date du remboursement
 
   // Metadata
   metadata  Json?
@@ -479,7 +428,7 @@ model Payment {
 }
 
 // ============================================================================
-// SUBSCRIPTIONS
+// SUBSCRIPTIONS (Req 34-38, 89-93)
 // ============================================================================
 
 enum SubscriptionStatus {
@@ -491,15 +440,18 @@ enum SubscriptionStatus {
 
 model SubscriptionPlan {
   id          String  @id @default(uuid())
-  name        String
+  name        String // "Premium Monthly"
   description String?
 
-  price    Float
-  duration Int
+  // Pricing
+  price    Float // GNF/month
+  duration Int // Days (30, 90, 365)
 
-  benefits Json
+  // Benefits
+  benefits Json // {"freeKwh": 100, "discount": 20}
 
-  maxSessions Int?
+  // Limits
+  maxSessions Int? // Max sessions per month
 
   isActive Boolean @default(true)
 
@@ -534,13 +486,13 @@ model Subscription {
 }
 
 // ============================================================================
-// LOYALTY POINTS
+// LOYALTY POINTS (Req 37-38)
 // ============================================================================
 
 enum LoyaltyTransactionType {
-  EARNED
-  REDEEMED
-  EXPIRED
+  EARNED // Points gagnés
+  REDEEMED // Points dépensés
+  EXPIRED // Points expirés
 }
 
 model LoyaltyPoint {
@@ -548,7 +500,7 @@ model LoyaltyPoint {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  points      Int
+  points      Int // +100 or -50
   type        LoyaltyTransactionType
   description String?
   expiresAt   DateTime?
@@ -561,7 +513,7 @@ model LoyaltyPoint {
 }
 
 // ============================================================================
-// SUPPORT TICKETS
+// SUPPORT TICKETS (Req 39-42, 107-111)
 // ============================================================================
 
 enum TicketStatus {
@@ -588,12 +540,16 @@ model SupportTicket {
   status      TicketStatus   @default(OPEN)
   priority    TicketPriority @default(MEDIUM)
 
+  // Assignment (Req 108)
   assignedToId String?
 
+  // Station related
   stationId String?
 
-  attachments String[]
+  // Attachments
+  attachments String[] // URLs
 
+  // Resolution
   resolvedAt DateTime?
   resolution String?
 
@@ -607,13 +563,13 @@ model SupportTicket {
 }
 
 // ============================================================================
-// MAINTENANCE LOGS
+// MAINTENANCE LOGS (Req 49-53, 57)
 // ============================================================================
 
 enum MaintenanceType {
-  PREVENTIVE
-  CORRECTIVE
-  EMERGENCY
+  PREVENTIVE // Préventive
+  CORRECTIVE // Corrective
+  EMERGENCY // Urgence
 }
 
 enum MaintenanceStatus {
@@ -632,10 +588,12 @@ model MaintenanceLog {
   status      MaintenanceStatus @default(SCHEDULED)
   description String
 
+  // Scheduling (Req 50)
   scheduledAt DateTime?
   startedAt   DateTime?
   completedAt DateTime?
 
+  // Technician
   technicianName String?
   notes          String?
 
@@ -648,7 +606,7 @@ model MaintenanceLog {
 }
 
 // ============================================================================
-// REVIEWS
+// REVIEWS (Req 110)
 // ============================================================================
 
 model Review {
@@ -659,9 +617,10 @@ model Review {
   stationId String
   station   ChargingStation @relation(fields: [stationId], references: [id])
 
-  rating  Int
+  rating  Int // 1-5 stars
   comment String?
 
+  // Moderation (Req 111)
   isModerated Boolean @default(false)
   isApproved  Boolean @default(true)
 
@@ -674,7 +633,7 @@ model Review {
 }
 
 // ============================================================================
-// FAVORITE STATIONS
+// FAVORITE STATIONS (User feature)
 // ============================================================================
 
 model FavoriteStation {
@@ -693,7 +652,7 @@ model FavoriteStation {
 }
 
 // ============================================================================
-// NOTIFICATIONS
+// NOTIFICATIONS (Req 30-33, 112-117)
 // ============================================================================
 
 enum NotificationType {
@@ -726,39 +685,39 @@ enum NotificationStatus {
   BOUNCED
 }
 
-enum NotificationChannel {
-  EMAIL
-  SMS
-  PUSH
-  IN_APP
-}
-
 model Notification {
   id     String @id @default(uuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Template utilisé
   templateId String?
   template   NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
+  // Type et contenu
   type    NotificationType
-  channel NotificationChannel?
+  channel NotificationChannel? // ⬅️ AJOUTER pour savoir le canal utilisé
 
+  // Contenu (peut être généré depuis template OU personnalisé)
   title     String
-  subject   String?
-  message   String
-  recipient String?
+  subject   String? // Pour emails
+  message   String // Corps principal (ou "body")
+  recipient String? // Email ou numéro de téléphone
 
+  // Statut d'envoi
   status      NotificationStatus @default(PENDING)
   sentAt      DateTime?
   deliveredAt DateTime?
 
+  // UI (lecture dans l'app)
   read   Boolean   @default(false)
   readAt DateTime?
 
+  // Actions
   actionUrl  String?
   actionText String?
 
+  // Métadonnées
   metadata Json?
 
   createdAt DateTime @default(now())
@@ -772,22 +731,26 @@ model Notification {
 
 model NotificationTemplate {
   id      String              @id @default(uuid())
-  name    String              @unique
+  name    String              @unique // "welcome_email", "session_completed_sms"
   type    NotificationType
   channel NotificationChannel
 
-  subject   String?
-  body      String
-  variables String[]
+  // Contenu
+  subject   String? // Pour emails uniquement
+  body      String // Template avec variables {{variable}}
+  variables String[] // ["userName", "amount", etc.]
 
+  // Configuration
   isActive Boolean @default(true)
   language String  @default("fr")
 
+  // Métadonnées
   metadata Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // ⬇️ AJOUTER CETTE LIGNE (relation inverse)
   notifications Notification[]
 
   @@index([type])
@@ -797,8 +760,59 @@ model NotificationTemplate {
 }
 
 // ============================================================================
-// SETTINGS & CONFIGURATION
+// WALLETS (NG Wallet - Portefeuille interne)
 // ============================================================================
+
+model Wallet {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  balance Float @default(0) // GNF
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+
+  @@index([userId])
+  @@map("wallets")
+}
+
+enum WalletTransactionType {
+  CREDIT // Recharge du wallet
+  DEBIT // Déduction pour charge
+  REFUND // Remboursement
+  BONUS // Bonus/Promotion
+}
+
+model WalletTransaction {
+  id       String @id @default(uuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  type          WalletTransactionType
+  amount        Float // GNF (+ pour crédit, - pour débit)
+  balanceBefore Float
+  balanceAfter  Float
+  description   String?
+
+  // Référence optionnelle à une session ou paiement
+  sessionId String?
+  paymentId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([walletId])
+  @@index([createdAt])
+  @@map("wallet_transactions")
+}
+
+// ============================================================================
+// SETTINGS & CONFIGURATION MODULE (Req 94-106, 112-117)
+// ============================================================================
+
+// ==================== APP SETTINGS ====================
 
 enum SettingType {
   STRING
@@ -810,26 +824,26 @@ enum SettingType {
 }
 
 enum SettingCategory {
-  GENERAL
-  EMAIL
-  SMS
-  PAYMENT
-  NOTIFICATION
-  SECURITY
-  BILLING
+  GENERAL // Nom app, logo, etc.
+  EMAIL // SMTP config
+  SMS // SMS provider config
+  PAYMENT // Orange Money, MTN, etc.
+  NOTIFICATION // Templates notifications
+  SECURITY // Rate limiting, etc.
+  BILLING // Facturation
   OTHER
 }
 
 model AppSetting {
   id       String          @id @default(uuid())
-  key      String          @unique
-  value    String
+  key      String          @unique // "app.name", "smtp.host", etc.
+  value    String // Valeur du paramètre
   type     SettingType     @default(STRING)
   category SettingCategory @default(GENERAL)
 
   description String?
-  isPublic    Boolean @default(false)
-  isEditable  Boolean @default(true)
+  isPublic    Boolean @default(false) // Visible dans l'API publique
+  isEditable  Boolean @default(true) // Modifiable via UI
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -839,9 +853,16 @@ model AppSetting {
   @@map("app_settings")
 }
 
-// ============================================================================
-// SYSTEM LOGS
-// ============================================================================
+// ==================== NOTIFICATION TEMPLATES ====================
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+// ==================== SYSTEM LOGS ====================
 
 enum LogLevel {
   DEBUG
@@ -866,23 +887,28 @@ enum LogCategory {
 model SystemLog {
   id String @id @default(uuid())
 
+  // Type de log
   level    LogLevel    @default(INFO)
   category LogCategory @default(SYSTEM)
 
+  // Contexte
   userId String?
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  // Contenu
   message String
   details Json?
 
+  // Trace
   stackTrace String?
 
+  // Métadonnées
   ipAddress  String?
   userAgent  String?
   endpoint   String?
   method     String?
   statusCode Int?
-  duration   Int?
+  duration   Int? // Durée en ms
 
   createdAt DateTime @default(now())
 
